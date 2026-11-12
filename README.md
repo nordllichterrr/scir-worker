@@ -1,172 +1,111 @@
-````markdown
-# cold-start-algorithm
+# SCIR Worker
 
-End-to-end, reproducible evaluation pipeline for recommendation algorithms in **cold-start** and **few-shot personalization** settings.  
-The project focuses on accuracy (HR@K, nDCG@K, MRR, MAP) *and* beyond-accuracy properties such as serendipity/novelty, catalog coverage, and exposure bias.
+SCIR Worker is the background experiment execution service for **SCIR Lab**.
 
-## TL;DR (Quickstart)
+It provides the computational infrastructure required to execute recommendation-system experiments asynchronously, independently of the SCIR Lab web application.
 
-1) Download datasets and place them into `data/` (see **Datasets**).  
-2) Install dependencies (`requirements.txt`).  
-3) Run the full pipeline:
+The repository is part of the SCIR Lab platform architecture and is responsible for running experiment jobs submitted by the backend.
 
-```bash
-python -m tools.full_pipeline --clean --fast --rebuild-gt
-````
+## Purpose
 
----
+The main purpose of SCIR Worker is to execute computationally intensive recommendation-system experiments without blocking the web application.
 
-## Requirements
+It connects the SCIR Lab backend with the experiment execution environment and returns execution information to the platform.
 
-* Python **3.12.7** (used during development)
-* `pip`
-* OS: Linux / macOS / Windows (WSL recommended if you run into dependency issues)
+## Main Responsibilities
 
----
+- Receive experiment jobs from the Celery task queue.
+- Execute recommendation-system experiments.
+- Support different datasets and experiment configurations.
+- Track experiment execution status and progress.
+- Collect experiment logs and evaluation metrics.
+- Report execution results to the SCIR Lab backend.
+- Provide metadata about generated experiment artifacts.
+
+## Architecture
+
+SCIR Worker operates as an independent background service within the SCIR Lab architecture.
+
+The execution workflow is:
+
+1. A user configures and submits an experiment through SCIR Lab.
+2. The Django backend creates an experiment record and places a task in the Redis-backed Celery queue.
+3. SCIR Worker retrieves the task from the `scir` queue.
+4. The worker executes the corresponding experiment.
+5. Execution status, progress, logs, metrics, and artifact metadata are sent to the Django backend through its internal API.
+6. SCIR Lab makes the experiment results available through its web interface.
+
+## Technology Stack
+
+- **Python** — experiment execution environment.
+- **Celery** — asynchronous task processing.
+- **Redis** — message broker and task queue.
+- **Django REST API** — communication with the SCIR Lab backend.
+- **PyTorch** — machine learning computations.
+- **Sentence Transformers** — semantic representations.
+- **FAISS** — vector-based retrieval.
+- **scikit-learn, NumPy, pandas, SciPy** — data processing and evaluation.
+
+## Repository Structure
+
+- `scir_worker/` — Celery application and background task definitions.
+- `src/` — recommendation, retrieval, ranking, evaluation, and experiment execution modules.
+- `tools/` — supporting utilities for experiments and research analysis.
+- `requirements.txt` — Python dependencies.
+
+Datasets, generated experiment results, model weights, and local environment files are not included in the repository.
+
+## Configuration
+
+The worker requires the following environment variables:
+
+| Variable | Description |
+|---|---|
+| `REDIS_URL` | Connection URL of the Redis instance used as the Celery broker. |
+| `DJANGO_INTERNAL_API_URL` | Base URL of the SCIR Lab Django backend. |
+| `WORKER_API_TOKEN` | Shared authentication token used for internal worker-to-backend requests. |
+
+These variables must be configured in the deployment environment.
+
+Secrets and credentials must never be committed to the repository.
 
 ## Installation
 
-Clone the repository and create a virtual environment:
+Install the required dependencies:
 
 ```bash
-git clone https://github.com/nikita-zmanovskiy/cold-start-algorithm
-cd cold-start-algorithm
-```
-
-Install dependencies:
-
-```bash
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
----
+## Running the Worker
 
-## Datasets
-
-You need to download 3 datasets and place them into specific folders **inside this repository**.
-
-### 1) MovieLens 25M
-
-* Download: [https://files.grouplens.org/datasets/movielens/ml-25m.zip](https://files.grouplens.org/datasets/movielens/ml-25m.zip)
-* Unpack to: `data/movieLens/ml-25m/`
-
-Expected files (at minimum):
-
-* `data/movieLens/ml-25m/ratings.csv`
-* `data/movieLens/ml-25m/movies.csv`
-
-Example (Linux/macOS):
+Start the Celery worker with:
 
 ```bash
-mkdir -p data/movieLens
-unzip /path/to/ml-25m.zip -d data/movieLens
-# This should create: data/movieLens/ml-25m/...
+celery -A scir_worker.celery_app worker --loglevel=INFO -Q scir
 ```
 
-### 2) Serendipity-2018 (SAC 2018)
+The worker listens to the `scir` queue and processes experiment execution tasks submitted by SCIR Lab.
 
-* Download page: [https://grouplens.org/datasets/serendipity-2018/](https://grouplens.org/datasets/serendipity-2018/)
-* Unpack to: `data/serendipity-sac2018/`
+## Deployment
 
-Example layout:
+SCIR Worker is designed to run as a separate Railway service.
 
-```text
-data/serendipity-sac2018/
-  (dataset files as provided by GroupLens)
-```
+It must share access to the Redis instance configured for the SCIR Lab backend and have the required internal API environment variables.
 
-> Note: The Serendipity dataset download may require following the instructions on the official dataset page.
+The worker does not expose a public web interface. Experiment configuration, user interaction, and result visualization are handled by SCIR Lab.
 
-### 3) Taobao-Serendipity
+## Scope
 
-* Source: [https://github.com/greenblue96/Taobao-Serendipity-Dataset](https://github.com/greenblue96/Taobao-Serendipity-Dataset)
-* Put into: `data/Taobao-Serendipity-Dataset-master/`
+This repository focuses on background experiment execution and integration with the SCIR Lab platform.
 
-Option A (recommended): clone directly into the target folder
+It is not a standalone recommendation service or a replacement for the SCIR Lab web application.
 
-```bash
-mkdir -p data
-git clone https://github.com/greenblue96/Taobao-Serendipity-Dataset data/Taobao-Serendipity-Dataset-master
-```
+Persistent artifact storage and artifact downloads are outside the scope of the initial public demonstration.
 
-Option B: download ZIP from GitHub and unpack it so the final folder name is:
+## Acknowledgements
 
-```text
-data/Taobao-Serendipity-Dataset-master/
-```
+The experiment codebase builds upon and adapts work from the [`cold-start-algorithm`](https://github.com/nikita-zmanovskiy/cold-start-algorithm) repository.
 
----
+The SCIR Worker repository has a separate purpose: providing the background execution infrastructure and integration layer for SCIR Lab.
 
-## Reproducing Results
-
-### Run the end-to-end pipeline (recommended)
-
-From the repository root:
-
-```bash
-python -m tools.full_pipeline --clean --fast --rebuild-gt
-```
-
-What the flags mean:
-
-* `--clean`
-  Starts from a clean state (removes/overwrites prior artifacts so results are reproducible).
-
-* `--fast`
-  Runs a **faster sanity-check** configuration (smaller evaluation setup) so you can verify everything works end-to-end.
-
-* `--rebuild-gt`
-  Rebuilds ground-truth / splits artifacts required for evaluation.
-
-### Full (slow) reproduction
-
-If you want a heavier run (more exhaustive than `--fast`), run without `--fast`:
-
-```bash
-python -m tools.full_pipeline --clean --rebuild-gt
-```
-
----
-
-## Outputs
-
-After the pipeline finishes, the project will write artifacts such as:
-
-* run logs / per-run metrics (e.g., `runs.jsonl`)
-* aggregated results tables (CSV/JSON)
-* figures/plots for analysis
-
-(Exact output paths are defined by the pipeline scripts.)
-
----
-
-## Troubleshooting
-
-### “File not found” for datasets
-
-Double-check the folder names and paths are exactly:
-
-```text
-data/movieLens/ml-25m/...
-data/serendipity-sac2018/...
-data/Taobao-Serendipity-Dataset-master/...
-```
-
-## Citation
-
-If you use this codebase in academic work, please cite:
-
-* Zenodo DOI: [https://doi.org/10.5281/zenodo.18772321](https://doi.org/10.5281/zenodo.18772321)
-
-You can also use the provided `CITATION.cff`.
-
----
-
-## License
-
-See `LICENSE`
-
-[1]: https://raw.githubusercontent.com/nikita-zmanovskiy/cold-start-algorithm/master/src/preprocess.py "raw.githubusercontent.com"
-[2]: https://raw.githubusercontent.com/nikita-zmanovskiy/cold-start-algorithm/master/tools/full_pipeline.py "raw.githubusercontent.com"
-[3]: https://raw.githubusercontent.com/nikita-zmanovskiy/cold-start-algorithm/master/CITATION.cff "raw.githubusercontent.com"
